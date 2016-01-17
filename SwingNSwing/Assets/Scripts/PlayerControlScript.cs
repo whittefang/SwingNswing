@@ -7,11 +7,13 @@ public class PlayerControlScript : MonoBehaviour {
 	public Rigidbody2D RB;
 	public float groundSpeed, jumpHeight, DashSpeed;
 	public GameObject grappleAnchor;
-
+	public GameObject swingEffect;
+	public int playerNumber;
 	float xStick, yStick, deadSize = .25f;
-	bool inputEnabled = true, doubleJump = false, grounded = false, onWallRight = false, onWallLeft = false, leftRightEnabled = true, swinging = false, facingRight, dash = false;
+	bool inputEnabled = true, doubleJump = false, grounded = false, onWallRight = false, onWallLeft = false, leftRightEnabled = true, swinging = false, facingRight, dash = false, canAttack = true;
+	ScoreScript SS;
 
-	int groundMask;
+	int groundMask, playerGroundMask;
 	int groundedBuffer = 0, wallBuffer = 0;
 	Vector2 swingPoint, grappleDirection;
 	Vector3 prevPosition;
@@ -26,8 +28,10 @@ public class PlayerControlScript : MonoBehaviour {
 	// Use this for initialization
 	void Start () {
 		groundMask = 1 << 8;
-		playerIndex = (PlayerIndex)0;
+		playerGroundMask = 1 << 9; // maybe nine maybe just a number
+		playerIndex = (PlayerIndex)playerNumber;
 		SR = GetComponent<SpriteRenderer> ();
+		SS = GameObject.Find ("ScoreObject").GetComponent<ScoreScript>();
 		//SwingEffectPool = GameObject.Find ("LinePooler").GetComponent<ObjectPoolScript> ();
 	}
 	
@@ -61,7 +65,6 @@ public class PlayerControlScript : MonoBehaviour {
 			} else if (wallCheckLeft.collider != null && wallBuffer <= 0) {				 
 				onWallLeft = true;
 				doubleJump = true;
-				dash = true;
 				if (swinging) {
 					BreakLine ();
 				}
@@ -89,7 +92,7 @@ public class PlayerControlScript : MonoBehaviour {
 
 			if (xStick > 0) {
 				facingRight = true;
-			}else if (xStick < 0){
+			} else if (xStick < 0) {
 				facingRight = false;
 			}
 
@@ -104,9 +107,9 @@ public class PlayerControlScript : MonoBehaviour {
 					RB.AddForce (new Vector2 (0, jumpHeight));
 					grounded = false;
 					groundedBuffer = 1;
-				}else if (onWallLeft || onWallRight){
+				} else if (onWallLeft || onWallRight) {
 					WallJump ();
-				}else if (doubleJump){
+				} else if (doubleJump) {
 					BreakLine ();
 					RB.velocity = new Vector2 (RB.velocity.x, 0);
 					RB.AddForce (new Vector2 (0, jumpHeight));
@@ -114,8 +117,8 @@ public class PlayerControlScript : MonoBehaviour {
 				}
 			}
 
-			if (onWallLeft || onWallRight){
-				RB.velocity = new Vector2(0, 0);
+			if (onWallLeft || onWallRight) {
+				RB.velocity = new Vector2 (0, 0);
 			}
 
 			// aiming button controls
@@ -124,11 +127,11 @@ public class PlayerControlScript : MonoBehaviour {
 			}
 
 			// input for shooting primary
-			if (state.Triggers.Right > .5f ) {
+			if (state.Triggers.Right > .5f) {
 
 			}
 			// input for  swinging
-			if (prevState.Triggers.Right <= .5f && state.Triggers.Right > .5f  && !onWallLeft && !onWallRight && !grounded) {
+			if (prevState.Triggers.Right <= .5f && state.Triggers.Right > .5f && !onWallLeft && !onWallRight && !grounded) {
 				if (facingRight) {
 					grappleDirection = new Vector2 (1, 1);
 				} else {
@@ -150,11 +153,11 @@ public class PlayerControlScript : MonoBehaviour {
 				BreakLine ();
 			}
 			// inptut for secondary released
-			if (state.Buttons.RightShoulder == ButtonState.Released && prevState.Buttons.RightShoulder == ButtonState.Pressed ) {
+			if (state.Buttons.RightShoulder == ButtonState.Released && prevState.Buttons.RightShoulder == ButtonState.Pressed) {
 
 			}
 			// input for shooting secondary
-			if (state.Buttons.RightShoulder == ButtonState.Pressed ) {
+			if (state.Buttons.RightShoulder == ButtonState.Pressed) {
 			}
 			// menu control
 			if (state.Buttons.Start == ButtonState.Pressed && prevState.Buttons.Start == ButtonState.Released && Time.timeScale == 1) {
@@ -163,14 +166,18 @@ public class PlayerControlScript : MonoBehaviour {
 			}
 
 			// x button for swinging
-			if (state.Buttons.X == ButtonState.Pressed && prevState.Buttons.X == ButtonState.Released && dash) {
-				StartCoroutine (DashAttack(state.ThumbSticks.Left.X, state.ThumbSticks.Left.Y));
+			if (state.Buttons.X == ButtonState.Pressed && prevState.Buttons.X == ButtonState.Released && dash && canAttack) {
+				
+				StartCoroutine (CircleAttack ());
+
+				// old call for dash attack
+				//StartCoroutine (DashAttack(state.ThumbSticks.Left.X, state.ThumbSticks.Left.Y));
 
 			}
 			if (prevState.Buttons.X == ButtonState.Pressed && state.Buttons.X == ButtonState.Released) {
 				
 			}
-
+		}
 			// change up velocity based on swinging state
 			if (swinging) {
 				CheckLineBreaks ();
@@ -188,12 +195,13 @@ public class PlayerControlScript : MonoBehaviour {
 				}
 			}
 			
-		} 
+		
 		prevPosition = transform.position;
 	}
 
 	void WallJump(){
 		RB.velocity = new Vector2 (RB.velocity.x, 0);
+		dash = true;
 		if (onWallRight) {
 			RB.AddForce (new Vector2 (-200, jumpHeight));
 			onWallRight = false;
@@ -234,8 +242,30 @@ public class PlayerControlScript : MonoBehaviour {
 			
 	}
 
+	IEnumerator CircleAttack(){
+		//inputEnabled = false;
+		canAttack = false;
+		swingEffect.SetActive (true);
+		yield return new WaitForSeconds (.05f);
 
+		RaycastHit2D[] hit =  Physics2D.CircleCastAll (transform.position, 1f, Vector2.zero, 0f, playerGroundMask);
 
+		foreach (RaycastHit2D player in hit){
+			if (player.collider.gameObject != gameObject) {
+				player.collider.GetComponent<HealthScript> ().DealDamage (100);
+				SS.IncrementKill (playerNumber);
+			}
+		}
+
+		yield return new WaitForSeconds (.05f);
+		swingEffect.SetActive (false);
+		inputEnabled = true;
+		yield return new WaitForSeconds (.15f);
+		canAttack = true;
+	}
+
+	// old dash attack variant
+	/*
 	IEnumerator DashAttack(float x, float y){
 
 		inputEnabled = false;
@@ -271,13 +301,40 @@ public class PlayerControlScript : MonoBehaviour {
 
 		SR.color = Color.red;
 
-		RaycastHit2D positionCheck = Physics2D.Raycast (transform.position, new Vector3(x, y, 0),1.5f, groundMask);
-		RaycastHit2D hitCheck = Physics2D.Raycast (transform.position, new Vector3(x, y, 0), 1.5f, playerMask);
-		yield return new WaitForSeconds (.05f);
+		RaycastHit2D hitCheck = Physics2D.Raycast (transform.position, new Vector3(x, y, 0), 4.5f, playerGroundMask);
+		RB.gravityScale = 0;
+		 if (x == 0 || y == 0) {
+			RB.velocity = new Vector3 (x * DashSpeed, y * DashSpeed, 0);
+			yield return new WaitForSeconds (.05f);
+		} else {
+			RB.velocity = new Vector3 (x * DashSpeed/1.5f, y * DashSpeed/1.5f, 0);
+			yield return new WaitForSeconds (.05f);
+
+		}
+
+	
+
+
+
+
+		// check hit and do damage
+		if (hitCheck.collider != null && hitCheck.collider.tag == "Player"){
+
+			// send message to health script
+			Debug.Log ("hit");
+			//hitCheck.collider.gameObject.GetComponent<HealthScript>().DealDamage(100);
+		}
+
+		RB.gravityScale = 3;
+
 		SR.color = Color.white;
 		RB.velocity = Vector3.zero;
 		RB.gravityScale = 3;
 		inputEnabled = true;
 
+	}
+	*/
+	public int GetPlayerNumber(){
+		return playerNumber;
 	}
 }
