@@ -2,13 +2,13 @@
 using System.Collections;
 
 public class SelfTurnOffScript : MonoBehaviour {
-
+	public float delay;
 	// Use this for initialization
 	void Start () {
 	}
 	void OnEnable(){
 
-		Invoke("TurnOff", 3f);
+		Invoke("TurnOff", delay);
 	}
 	
 	// Update is called once per frame

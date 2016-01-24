@@ -6,12 +6,14 @@ public class PlayerControlScript : MonoBehaviour {
 
 	public Rigidbody2D RB;
 	public float groundSpeed, jumpHeight, DashSpeed;
-	public GameObject grappleAnchor;
+	public GameObject grappleAnchor, ChainHixbox;
 	public GameObject swingEffect;
 	public int playerNumber;
 	float xStick, yStick, deadSize = .25f;
-	bool inputEnabled = true, doubleJump = false, grounded = false, onWallRight = false, onWallLeft = false, leftRightEnabled = true, swinging = false, facingRight, dash = false, canAttack = true;
+	bool inputEnabled = true, doubleJump = false, grounded = false, onWallRight = false, onWallLeft = false, leftRightEnabled = true, swinging = false, facingRight, dash = false, canAttack = true, swingEnabled = true;
 	ScoreScript SS;
+
+	public ObjectPoolScript chainLinkPool;
 
 	int groundMask, playerGroundMask;
 	int groundedBuffer = 0, wallBuffer = 0;
@@ -33,6 +35,17 @@ public class PlayerControlScript : MonoBehaviour {
 		SR = GetComponent<SpriteRenderer> ();
 		SS = GameObject.Find ("ScoreObject").GetComponent<ScoreScript>();
 		//SwingEffectPool = GameObject.Find ("LinePooler").GetComponent<ObjectPoolScript> ();
+	}
+
+	void OnEnable(){
+		grounded = false;
+		onWallLeft = false;
+		onWallRight = false;
+		leftRightEnabled = true;
+		inputEnabled = true;
+		swinging = false;
+		canAttack = true;
+		swingEnabled = true;
 	}
 	
 	// Update is called once per frame
@@ -96,7 +109,9 @@ public class PlayerControlScript : MonoBehaviour {
 				facingRight = false;
 			}
 
-			RB.velocity = new Vector3 (xStick * groundSpeed, RB.velocity.y, 0);
+			if (((RB.velocity.x <=  xStick * groundSpeed) && (xStick > 0) || (RB.velocity.x >=  xStick * groundSpeed) && (xStick < 0) ) || grounded) {
+				RB.velocity = new Vector3 (xStick * groundSpeed, RB.velocity.y, 0);
+			}
 
 
 			// jump button
@@ -107,6 +122,7 @@ public class PlayerControlScript : MonoBehaviour {
 					RB.AddForce (new Vector2 (0, jumpHeight));
 					grounded = false;
 					groundedBuffer = 1;
+					wallBuffer = 10;
 				} else if (onWallLeft || onWallRight) {
 					WallJump ();
 				} else if (doubleJump) {
@@ -131,7 +147,7 @@ public class PlayerControlScript : MonoBehaviour {
 
 			}
 			// input for  swinging
-			if (prevState.Triggers.Right <= .5f && state.Triggers.Right > .5f && !onWallLeft && !onWallRight && !grounded) {
+			if (prevState.Triggers.Right <= .5f && state.Triggers.Right > .5f && !onWallLeft && !onWallRight && !grounded && swingEnabled) {
 				if (facingRight) {
 					grappleDirection = new Vector2 (1, 1);
 				} else {
@@ -144,7 +160,8 @@ public class PlayerControlScript : MonoBehaviour {
 				grappleAnchor.transform.position = swingPoint;
 				grappleAnchor.SetActive (true);
 				LR.enabled = true;
-
+				ChainHixbox.SetActive (true);
+				StartCoroutine (SwingingCooldown());
 				swinging = true;
 				leftRightEnabled = false;
 			}
@@ -181,13 +198,13 @@ public class PlayerControlScript : MonoBehaviour {
 			// change up velocity based on swinging state
 			if (swinging) {
 				CheckLineBreaks ();
-				LineGraphicsUpdate ();
 
 				// reel in line
 				if (SwingRadius > 1) {
 					SwingRadius -= .05f;
 				}
 
+				LineGraphicsUpdate ();
 				if (Vector2.Distance (transform.position, swingPoint) > SwingRadius) {
 					
 					transform.position = Vector2.MoveTowards (transform.position, swingPoint, Vector2.Distance (transform.position, swingPoint) - SwingRadius);
@@ -218,23 +235,58 @@ public class PlayerControlScript : MonoBehaviour {
 		yield return new WaitForSeconds (.05f);
 		leftRightEnabled = true;
 	}
+	IEnumerator SwingingCooldown(){
+		swingEnabled = false;
+		yield return new WaitForSeconds (.4f);
+		swingEnabled = true;
+	}
 	void LineGraphicsUpdate(){
+		ChainHixbox.transform.localScale = new Vector3(Vector2.Distance (transform.position, swingPoint), 1 , 1);
+		ChainHixbox.transform.position = Vector3.MoveTowards (transform.position, swingPoint, Vector2.Distance (transform.position, swingPoint) / 2); 
+		Vector2 diff = transform.position - new Vector3(swingPoint.x, swingPoint.y, 0);
+		Debug.Log (Mathf.Atan2 (diff.x, diff.y));
+		ChainHixbox.transform.rotation = Quaternion.Euler(0, 0,90 - Mathf.Atan2 (diff.x, diff.y) * Mathf.Rad2Deg);
 		LR.SetPosition (0, transform.position);
 		LR.SetPosition (1, swingPoint);
 		LR.material.mainTextureScale = new Vector2(Vector2.Distance (transform.position, swingPoint),1);
 	}
 
-	void BreakLine(){
-		grappleAnchor.SetActive (false);
-		LR.enabled = false;
-		swinging = false;
-		leftRightEnabled = true;
+	 public void BreakLine(){
+		if (swinging) {
+			grappleAnchor.SetActive (false);
+			ChainHixbox.SetActive (false);
+			LR.enabled = false;
+			swinging = false;
+			leftRightEnabled = true;
+
+			AnimateLineBreak ();
+
+
+		}
+	}
+
+	void AnimateLineBreak(){
+		float x = 0;
+		Vector2 diff = transform.position - new Vector3(swingPoint.x, swingPoint.y, 0);
+		Quaternion rot = Quaternion.Euler(0, 0,180 - Mathf.Atan2 (diff.x, diff.y) * Mathf.Rad2Deg);
+		while (x < Vector2.Distance (transform.position, swingPoint)) {
+
+			GameObject tmp = chainLinkPool.FetchObject ();
+			tmp.transform.position = Vector3.MoveTowards (transform.position, swingPoint, x);
+			tmp.transform.rotation = rot;
+
+			tmp.SetActive (true);
+
+			tmp.GetComponent<Rigidbody2D> ().velocity = new Vector3 (Random.Range(-1f, 1f),Random.Range(1f, 3f), 0 );
+			x += .5f;
+		}
 	}
 
 	void CheckLineBreaks(){
 		Vector2 dir =  new Vector3(swingPoint.x, swingPoint.y, 1) - transform.position;
 		RaycastHit2D hit = Physics2D.Raycast (transform.position, dir, Mathf.Infinity, groundMask);
 		if (hit.point != swingPoint) {
+			AnimateLineBreak ();
 			swingPoint = hit.point;
 			SwingRadius = hit.distance;
 			grappleAnchor.transform.position = swingPoint;
@@ -251,9 +303,12 @@ public class PlayerControlScript : MonoBehaviour {
 		RaycastHit2D[] hit =  Physics2D.CircleCastAll (transform.position, 1f, Vector2.zero, 0f, playerGroundMask);
 
 		foreach (RaycastHit2D player in hit){
-			if (player.collider.gameObject != gameObject) {
-				player.collider.GetComponent<HealthScript> ().DealDamage (100);
-				SS.IncrementKill (playerNumber);
+			if (player.collider.gameObject != gameObject && player.collider.tag == "Player") {
+
+					player.collider.GetComponent<HealthScript> ().DealDamage (100);
+					SS.IncrementKill (playerNumber);
+			}else if (player.collider.tag == "Chain" && player.collider.gameObject != ChainHixbox){
+				player.collider.GetComponent<ChainDestructionScript> ().DestroyChain ();
 
 			}
 		}
@@ -337,5 +392,10 @@ public class PlayerControlScript : MonoBehaviour {
 	*/
 	public int GetPlayerNumber(){
 		return playerNumber;
+	}
+
+	void OnDisable(){
+		StopAllCoroutines ();
+		swingEffect.SetActive (false);
 	}
 }
